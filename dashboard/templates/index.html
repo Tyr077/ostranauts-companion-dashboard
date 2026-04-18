@@ -1,0 +1,1647 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>OSTRANAUTS // CREW MONITOR</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --green: #00ff41;
+  --green-dim: #00aa2a;
+  --cyan: #00ccff;
+  --amber: #ffaa00;
+  --red: #ff4444;
+  --bg: #000000;
+  --panel-bg: rgba(0, 10, 2, 0.85);
+  --border: #00ff4133;
+  --border-bright: #00ff41;
+  --glow: #00ff4166;
+}
+
+html {
+  /* POS target: HP Engage One 145 — 14" 1920x1080 capacitive touch
+     Viewing distance: 1-2 feet (arm's length)
+     At 157 PPI, 22px ≈ 3.6mm text height — readable at 60cm */
+  font-size: 22px;
+  touch-action: manipulation;
+}
+
+body {
+  background: var(--bg);
+  color: var(--green);
+  font-family: 'Share Tech Mono', monospace;
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* CRT scanlines */
+body::after {
+  content: '';
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  z-index: 999;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,0.04) 0px, rgba(0,0,0,0.04) 1px, transparent 1px, transparent 3px);
+}
+
+/* === HEADER === */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 20px;
+  height: 56px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0, 10, 2, 0.9);
+}
+.header-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 1.125rem;
+  font-weight: 900;
+  letter-spacing: 6px;
+  text-transform: uppercase;
+  text-shadow: 0 0 15px var(--green);
+}
+.header-status {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 0.875rem;
+}
+.status-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+.status-dot.connected { background: var(--green); box-shadow: 0 0 8px var(--green); }
+.status-dot.disconnected { background: var(--red); box-shadow: 0 0 8px var(--red); animation: none; }
+@keyframes pulse-dot { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
+
+/* === LAYOUT === */
+.main {
+  display: grid;
+  grid-template-columns: 1fr 400px;
+  grid-template-rows: auto 1fr;
+  gap: 10px;
+  padding: 10px;
+  height: calc(100vh - 56px - 48px);
+}
+.crew-view { display: none; }
+.crew-view.active { display: grid; }
+
+/* === PANELS === */
+.panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 14px;
+  position: relative;
+  overflow: hidden;
+}
+.panel::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--green), transparent);
+  animation: scanline 3s linear infinite;
+}
+@keyframes scanline { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+
+.panel-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--green);
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  text-shadow: 0 0 10px var(--green);
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* === ALERTS === */
+.alerts-panel { grid-column: 1 / -1; }
+.alerts-panel.empty { padding: 8px 14px; }
+.alerts-panel.empty .panel-title { margin-bottom: 0; padding-bottom: 0; border-bottom: none; display: inline; }
+.alert-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 4px;
+  border-radius: 3px;
+  font-size: 0.9375rem;
+  min-height: 44px;
+}
+.alert-item.critical {
+  background: rgba(255, 40, 40, 0.15);
+  border-left: 3px solid var(--red);
+  color: var(--red);
+}
+.alert-item.warning {
+  background: rgba(255, 170, 0, 0.1);
+  border-left: 3px solid var(--amber);
+  color: var(--amber);
+}
+.no-alerts { color: var(--green-dim); opacity: 0.5; }
+
+/* === CREW GRID === */
+.crew-panel {
+  grid-column: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.crew-panel > .panel-title { flex-shrink: 0; }
+.crew-grid {
+  display: grid;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+  /* columns and font-size set dynamically by JS based on crew count */
+}
+.crew-card {
+  background: rgba(0, 20, 5, 0.6);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.7em;
+  transition: border-color 0.3s;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.crew-card:hover, .crew-card:active { border-color: var(--border-bright); }
+.crew-card.alert { border-color: var(--red); }
+
+.crew-name {
+  font-family: 'Orbitron', monospace;
+  font-size: 1em;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--cyan);
+  text-shadow: 0 0 8px var(--cyan);
+  margin-bottom: 0.3em;
+}
+.crew-action {
+  font-size: 0.85em;
+  color: var(--amber);
+  opacity: 0.8;
+  margin-bottom: 0.5em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.crew-shift {
+  font-size: 0.7em;
+  opacity: 0.5;
+  float: right;
+}
+.crew-manual {
+  font-size: 0.65em;
+  color: var(--amber);
+  opacity: 0.6;
+  letter-spacing: 1px;
+  float: right;
+  margin-left: 0.5em;
+}
+
+/* Stat bars — all em-based so they scale with crew-grid font-size */
+.stats-container { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+.stat-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  margin-bottom: 0.3em;
+}
+.stat-label {
+  width: 4.5em;
+  font-size: 0.8em;
+  opacity: 0.6;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.stat-bar {
+  flex: 1;
+  height: 0.45em;
+  background: rgba(0, 255, 65, 0.08);
+  border-radius: 0.2em;
+  overflow: hidden;
+}
+.stat-fill {
+  height: 100%;
+  border-radius: 0.2em;
+  transition: width 0.8s ease-out, background 0.5s;
+}
+.stat-fill.good { background: var(--green); box-shadow: 0 0 4px var(--green); }
+.stat-fill.warn { background: var(--amber); box-shadow: 0 0 4px var(--amber); }
+.stat-fill.bad { background: var(--red); box-shadow: 0 0 4px var(--red); }
+.stat-val {
+  width: 3em;
+  text-align: right;
+  color: #fff;
+  font-size: 0.8em;
+}
+
+/* Priorities */
+.priorities {
+  margin-top: 0.4em;
+  padding-top: 0.3em;
+  border-top: 1px solid var(--border);
+  font-size: 0.8em;
+  opacity: 0.6;
+}
+.priority-item { margin-bottom: 0.15em; }
+.priority-cond { color: var(--cyan); }
+.priority-val { color: var(--amber); }
+
+/* === RIGHT SIDEBAR === */
+.sidebar { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+
+/* Ship panel */
+.room-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 0.875rem;
+  border-bottom: 1px solid rgba(0,255,65,0.05);
+}
+.room-label { opacity: 0.6; }
+.room-val { color: #fff; }
+.room-val.low { color: var(--red); }
+
+/* Events feed */
+.events-panel { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.event-item {
+  padding: 8px 10px;
+  margin-bottom: 3px;
+  border-left: 2px solid var(--border);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+.event-item.new {
+  animation: event-flash 0.8s ease-out;
+  border-left-color: var(--green);
+}
+@keyframes event-flash { 0% { background: rgba(0,255,65,0.15); } 100% { background: transparent; } }
+.event-time { color: var(--green-dim); font-size: 0.75rem; }
+.event-npc { color: var(--cyan); }
+.event-type { color: var(--amber); font-size: 0.75rem; }
+
+/* Director status */
+.director-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  min-height: 44px;
+  font-size: 0.8125rem;
+  background: rgba(0, 10, 2, 0.6);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.director-label { opacity: 0.6; }
+.director-val { color: var(--cyan); }
+
+/* === CARD EXPAND OVERLAY === */
+.card-backdrop {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: rgba(0, 0, 0, 0.75);
+  z-index: 50;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+.card-backdrop.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.card-overlay {
+  position: fixed;
+  z-index: 51;
+  display: none;
+  flex-direction: column;
+  background: rgba(0, 15, 3, 0.97);
+  border: 1px solid var(--border-bright);
+  border-radius: 6px;
+  padding: 0.7em;
+  box-shadow: 0 0 40px rgba(0, 255, 65, 0.15), 0 0 80px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  cursor: pointer;
+  transition: top 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+              left 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+              width 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+              height 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+              font-size 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.card-overlay::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--green), transparent);
+}
+
+/* Reuse card styles inside overlay */
+.card-overlay .crew-name,
+.card-overlay .crew-action,
+.card-overlay .stats-container,
+.card-overlay .stat-row,
+.card-overlay .stat-label,
+.card-overlay .stat-bar,
+.card-overlay .stat-fill,
+.card-overlay .stat-val,
+.card-overlay .priorities,
+.card-overlay .priority-item,
+.card-overlay .priority-cond,
+.card-overlay .priority-val,
+.card-overlay .crew-shift,
+.card-overlay .crew-manual {
+  /* Inherit all card styling — em units scale with overlay font-size */
+}
+
+/* === TAB BAR === */
+.tab-bar {
+  display: flex;
+  gap: 0;
+  height: 48px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0, 10, 2, 0.9);
+}
+.tab-btn {
+  flex: 0 0 auto;
+  padding: 0 2rem;
+  font-family: 'Orbitron', monospace;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: var(--green-dim);
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+  min-height: 48px;
+  transition: color 0.2s, border-color 0.2s;
+}
+.tab-btn:active { opacity: 0.7; }
+.tab-btn.active {
+  color: var(--green);
+  border-bottom-color: var(--green);
+  text-shadow: 0 0 10px var(--green);
+}
+.tab-spacer { flex: 1; }
+
+/* === NAV VIEW === */
+.nav-view {
+  position: relative;
+  width: 100%;
+  height: calc(100vh - 56px - 48px);
+  display: none;
+}
+.nav-view.active { display: block; }
+
+#navCanvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: #000;
+  touch-action: none;
+}
+
+.nav-hud {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  background: rgba(0, 10, 2, 0.85);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 14px;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  pointer-events: none;
+}
+.nav-hud .hud-label { color: var(--green-dim); }
+.nav-hud .hud-val { color: #fff; }
+.nav-hud .hud-ship { color: var(--cyan); font-family: 'Orbitron', monospace; font-weight: 700; letter-spacing: 1px; }
+
+.nav-info {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 300px;
+  background: rgba(0, 10, 2, 0.9);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 12px;
+  font-size: 0.7rem;
+  line-height: 1.5;
+  display: none;
+}
+.nav-info.show { display: block; }
+.nav-info .info-name { color: var(--cyan); font-family: 'Orbitron', monospace; font-weight: 700; font-size: 0.8rem; margin-bottom: 6px; }
+.nav-info .info-row { display: flex; justify-content: space-between; }
+.nav-info .info-label { color: var(--green-dim); }
+.nav-info .info-val { color: #fff; }
+.nav-info .info-close { position: absolute; top: 8px; right: 12px; color: var(--green-dim); cursor: pointer; font-size: 1rem; }
+
+.nav-center-btn {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  width: 48px;
+  height: 48px;
+  background: rgba(0, 10, 2, 0.85);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--green);
+  font-size: 1.2rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: manipulation;
+}
+.nav-center-btn:active { background: rgba(0, 255, 65, 0.15); }
+
+/* Scrollbars — touch-friendly width */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:active { background: var(--green-dim); }
+
+/* Connection lost overlay */
+.disconnected-overlay {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 100;
+  text-align: center;
+  display: none;
+}
+.disconnected-overlay.show { display: block; }
+.disconnected-overlay .msg {
+  font-family: 'Orbitron', monospace;
+  font-size: 1.25rem;
+  color: var(--red);
+  text-shadow: 0 0 20px var(--red);
+  letter-spacing: 4px;
+  animation: blink 1s infinite;
+}
+@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-title">OSTRANAUTS // COMPANION</div>
+  <div class="header-status">
+    <span id="hdrShip">---</span>
+    <span>|</span>
+    <span id="hdrTime">--:--:--</span>
+    <span>|</span>
+    <span id="hdrFps">-- FPS</span>
+    <span>|</span>
+    <span id="hdrCrew">0 CREW</span>
+    <div class="status-dot disconnected" id="statusDot"></div>
+  </div>
+</div>
+
+<div class="tab-bar">
+  <button class="tab-btn active" data-tab="crew" onclick="switchTab('crew')">CREW</button>
+  <button class="tab-btn" data-tab="nav" onclick="switchTab('nav')">NAV</button>
+  <div class="tab-spacer"></div>
+</div>
+
+<!-- CREW VIEW -->
+<div class="main crew-view active" id="viewCrew">
+  <!-- Alerts bar -->
+  <div class="panel alerts-panel empty" id="alertsPanel">
+    <div class="panel-title">ALERTS</div>
+    <div id="alertsContainer"><span class="no-alerts">ALL SYSTEMS NOMINAL</span></div>
+  </div>
+
+  <!-- Crew grid -->
+  <div class="panel crew-panel">
+    <div class="panel-title">CREW STATUS</div>
+    <div class="crew-grid" id="crewGrid">
+      <div style="opacity:0.4">Waiting for game data...</div>
+    </div>
+  </div>
+
+  <!-- Right sidebar -->
+  <div class="sidebar">
+    <!-- Ship/Atmosphere -->
+    <div class="panel">
+      <div class="panel-title">SHIP ATMOSPHERE</div>
+      <div id="shipRooms">
+        <div style="opacity:0.4">No ship data</div>
+      </div>
+    </div>
+
+    <!-- Events feed -->
+    <div class="panel events-panel">
+      <div class="panel-title">AI ACTIVITY</div>
+      <div id="eventsFeed">
+        <div style="opacity:0.4">No events yet</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- NAV VIEW -->
+<div class="nav-view" id="viewNav">
+  <canvas id="navCanvas"></canvas>
+  <div class="nav-hud" id="navHud">
+    <div class="hud-ship" id="hudShipName">---</div>
+    <div><span class="hud-label">VEL </span><span class="hud-val" id="hudVel">0 m/s</span></div>
+    <div><span class="hud-label">HDG </span><span class="hud-val" id="hudHdg">0°</span></div>
+    <div><span class="hud-label">RCS </span><span class="hud-val" id="hudRcs">0/0 kg</span></div>
+    <div><span class="hud-label">ΔV  </span><span class="hud-val" id="hudDv">0 m/s</span></div>
+    <div><span class="hud-label">POS </span><span class="hud-val" id="hudPos">0, 0</span></div>
+  </div>
+  <div class="nav-info" id="navInfo">
+    <span class="info-close" onclick="deselectTarget()">×</span>
+    <div class="info-name" id="infoName">---</div>
+    <div id="infoBody"></div>
+  </div>
+  <button class="nav-center-btn" onclick="centerOnPlayer()" title="Center on player">⊕</button>
+</div>
+
+<div class="card-backdrop" id="cardBackdrop"></div>
+<div class="card-overlay" id="cardOverlay"></div>
+
+<div class="disconnected-overlay" id="dcOverlay">
+  <div class="msg">// SIGNAL LOST //</div>
+  <div style="color:#ff444488;font-size:0.875rem;margin-top:8px;">Waiting for game connection on port 8085...</div>
+</div>
+
+<script>
+const POLL_MS = 500;
+let lastEventIds = '';  // content hash to detect actual changes
+let wasConnected = false;
+let expandedCrewId = null;  // crew ID of currently expanded card
+let lastCrewData = [];      // cache for overlay updates
+
+// Stat display config with actual game value ranges
+// Values come from raw GetCondAmount() — NOT normalized 0-1
+const STATS = [
+  { key: 'satiety',   label: 'FOOD',     max: 5.0,   invert: false, unit: '' },
+  { key: 'hydration', label: 'HYDRATE',  max: 5.0,   invert: false, unit: '' },
+  { key: 'fatigue',   label: 'FATIGUE',  max: 1.0,   invert: true,  unit: '' },
+  { key: 'pain',      label: 'PAIN',     max: 100.0, invert: true,  unit: '' },
+  { key: 'hygiene',   label: 'HYGIENE',  max: 30.0,  invert: false, unit: '' },
+  { key: 'comfort',   label: 'COMFORT',  max: 5.0,   invert: false, unit: '' },
+];
+
+async function poll() {
+  try {
+    const r = await fetch('/api/state');
+    const data = await r.json();
+    render(data);
+  } catch (e) {
+    renderDisconnected();
+  }
+}
+
+function render(data) {
+  const connected = data.connected;
+  const dot = document.getElementById('statusDot');
+  const overlay = document.getElementById('dcOverlay');
+
+  if (!connected) {
+    dot.className = 'status-dot disconnected';
+    overlay.classList.add('show');
+    return;
+  }
+
+  dot.className = 'status-dot connected';
+  overlay.classList.remove('show');
+  wasConnected = true;
+
+  // Header
+  const s = data.status || {};
+  document.getElementById('hdrShip').textContent = s.shipName || '---';
+  document.getElementById('hdrTime').textContent = s.realTime || '--:--:--';
+  document.getElementById('hdrFps').textContent = (s.fps || '--') + ' FPS';
+  document.getElementById('hdrCrew').textContent = (s.crewCount || 0) + ' CREW';
+
+  // Alerts
+  renderAlerts(data.alerts || []);
+
+  // Crew
+  renderCrew(data.crew || []);
+
+  // Ship
+  renderShip(data.ship || {});
+
+  // Events — only update DOM when events actually change
+  renderEvents(data.events || []);
+}
+
+function renderDisconnected() {
+  document.getElementById('statusDot').className = 'status-dot disconnected';
+  document.getElementById('dcOverlay').classList.add('show');
+}
+
+function renderAlerts(alerts) {
+  const container = document.getElementById('alertsContainer');
+  const panel = document.getElementById('alertsPanel');
+  if (alerts.length === 0) {
+    panel.classList.add('empty');
+    container.innerHTML = '<span class="no-alerts">ALL SYSTEMS NOMINAL</span>';
+    return;
+  }
+  panel.classList.remove('empty');
+  container.innerHTML = alerts.map(a =>
+    `<div class="alert-item ${a.type}">
+      <strong>${esc(a.crew)}</strong> &mdash; ${esc(a.msg)}
+    </div>`
+  ).join('');
+}
+
+function getCrewLayout(count) {
+  // Measure the actual available space in the crew panel
+  const panel = document.querySelector('.crew-panel');
+  if (!panel) return { cols: 2, scale: 1.0 };
+
+  const titleEl = panel.querySelector('.panel-title');
+  const titleH = titleEl ? titleEl.offsetHeight + 10 : 30;
+  const style = getComputedStyle(panel);
+  const padX = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+  const padY = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+  const availW = panel.clientWidth - padX;
+  const availH = panel.clientHeight - padY - titleH;
+
+  // Nominal card size at 1em = 22px (root font-size)
+  // These are approximate minimums before content gets cramped
+  const nomW = 320;
+  const nomH = 220;
+  const gap = 10;
+
+  let bestCols = 1, bestScale = 0;
+
+  for (let cols = 1; cols <= Math.min(count, 6); cols++) {
+    const rows = Math.ceil(count / cols);
+    const cardW = (availW - (cols - 1) * gap) / cols;
+    const cardH = (availH - (rows - 1) * gap) / rows;
+
+    // Scale limited by whichever dimension is tighter
+    const scale = Math.min(cardW / nomW, cardH / nomH);
+    if (scale > bestScale) {
+      bestScale = scale;
+      bestCols = cols;
+    }
+  }
+
+  // Clamp: don't go below 0.6 (unreadable) or above 3.0 (comically large)
+  return { cols: bestCols, rows: Math.ceil(count / bestCols), scale: Math.min(Math.max(bestScale, 0.6), 3.0) };
+}
+
+function renderCrew(crew) {
+  const grid = document.getElementById('crewGrid');
+  lastCrewData = crew;  // Cache for overlay updates
+
+  if (crew.length === 0) {
+    grid.style.fontSize = '';
+    grid.style.gridTemplateColumns = '';
+    grid.style.gridTemplateRows = '';
+    grid.innerHTML = '<div style="opacity:0.4">No crew data</div>';
+    return;
+  }
+
+  // Dynamically size cards to fill available space
+  const layout = getCrewLayout(crew.length);
+  grid.style.fontSize = `${layout.scale}em`;
+  grid.style.gridTemplateColumns = `repeat(${layout.cols}, 1fr)`;
+  grid.style.gridTemplateRows = `repeat(${layout.rows}, 1fr)`;
+
+  grid.innerHTML = crew.map(c => {
+    const conditions = c.conditions || [];
+    const hasAlert = conditions.some(cond =>
+      cond.startsWith('DcOxygen') || cond === 'IsUnconscious' || cond === 'Gasping'
+    );
+    return `<div class="crew-card ${hasAlert ? 'alert' : ''}" data-crew-id="${esc(c.id)}">${buildCardHtml(c)}</div>`;
+  }).join('');
+
+  // Attach touch/click handlers for expand
+  grid.querySelectorAll('.crew-card').forEach(card => {
+    card.style.cursor = 'pointer';
+    card.addEventListener('click', () => {
+      const crewId = card.dataset.crewId;
+      if (expandedCrewId === crewId) {
+        collapseCard();
+      } else {
+        expandCard(crewId);
+      }
+    });
+  });
+
+  // Update expanded overlay with latest data if open
+  updateExpandedOverlay();
+}
+
+function renderShip(ship) {
+  const container = document.getElementById('shipRooms');
+  if (!ship.loaded) {
+    container.innerHTML = '<div style="opacity:0.4">No ship loaded</div>';
+    return;
+  }
+
+  const rooms = ship.rooms || [];
+  if (rooms.length === 0) {
+    container.innerHTML = '<div style="opacity:0.4">No rooms</div>';
+    return;
+  }
+
+  container.innerHTML = rooms.map((r, i) => {
+    const o2 = r.o2 != null ? parseFloat(r.o2) : null;
+    const co2 = r.co2 != null ? parseFloat(r.co2) : null;
+
+    const o2cls = o2 !== null && o2 < 18 ? 'low' : '';
+    const co2cls = co2 !== null && co2 > 1 ? 'low' : '';
+
+    return `<div class="room-row">
+      <span class="room-label">R${i + 1} (${r.tiles || '?'}t)</span>
+      <span class="room-val ${o2cls}">O2:${o2 !== null ? o2.toFixed(1) : '?'}</span>
+      <span class="room-val ${co2cls}">CO2:${co2 !== null ? co2.toFixed(1) : '?'}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderEvents(events) {
+  const container = document.getElementById('eventsFeed');
+  if (events.length === 0) {
+    if (lastEventIds !== '') {
+      container.innerHTML = '<div style="opacity:0.4">No events yet</div>';
+      lastEventIds = '';
+    }
+    return;
+  }
+
+  // Build a content fingerprint to detect actual changes
+  // Only rebuild DOM when events have actually changed
+  const currentIds = events.length + ':' + (events[events.length - 1].time || '');
+  if (currentIds === lastEventIds) return;
+
+  const prevCount = lastEventIds ? parseInt(lastEventIds) || 0 : 0;
+  const newCount = events.length - prevCount;
+  lastEventIds = currentIds;
+
+  // Show newest first, mark genuinely new events
+  container.innerHTML = events.slice().reverse().slice(0, 40).map((e, i) =>
+    `<div class="event-item ${i < newCount ? 'new' : ''}">
+      <span class="event-time">${esc(e.time || '')}</span>
+      <span class="event-npc">${esc(e.npc || '')}</span>
+      <span class="event-type">${esc(e.type || '')}</span>
+      <div style="opacity:0.7">${esc(e.detail || '')}</div>
+    </div>`
+  ).join('');
+}
+
+// === CARD EXPAND/COLLAPSE ===
+
+function buildCardHtml(c) {
+  const conditions = c.conditions || [];
+  const condSet = new Set(conditions);
+  const foodLevel = condSet.has('DcFood04') ? 4 : condSet.has('DcFood03') ? 3
+                  : condSet.has('DcFood02') ? 2 : 1;
+  const hydLevel = condSet.has('DcHydration03') ? 3 : condSet.has('DcHydration02') ? 2 : 1;
+  const isManual = c.isAIManual;
+
+  const statsHtml = STATS.map(s => {
+    const raw = (c.stats || {})[s.key] || 0;
+    const pct = Math.min(Math.max((raw / s.max) * 100, 0), 100);
+
+    let barPct, cls, displayVal;
+
+    // Food and hydration: use DcFood/DcHydration conditions for bar + color
+    // Raw stat tracks stomach fullness, NOT nutritional state (0.0 = empty stomach but possibly well-fed)
+    if (s.key === 'satiety') {
+      barPct = foodLevel === 1 ? 100 : foodLevel === 2 ? 55 : foodLevel === 3 ? 25 : 5;
+      cls = foodLevel === 1 ? 'good' : foodLevel === 2 ? 'warn' : 'bad';
+      displayVal = ['OK', 'LOW', 'CRIT', 'DEAD'][foodLevel - 1];
+    } else if (s.key === 'hydration') {
+      barPct = hydLevel === 1 ? 100 : hydLevel === 2 ? 50 : 10;
+      cls = hydLevel === 1 ? 'good' : hydLevel === 2 ? 'warn' : 'bad';
+      displayVal = ['OK', 'LOW', 'CRIT'][hydLevel - 1];
+    } else if (s.invert) {
+      barPct = 100 - pct;
+      cls = pct < 30 ? 'good' : pct < 60 ? 'warn' : 'bad';
+      displayVal = raw < 10 ? raw.toFixed(1) : raw.toFixed(0);
+    } else {
+      barPct = pct;
+      cls = pct > 50 ? 'good' : pct > 25 ? 'warn' : 'bad';
+      displayVal = raw < 10 ? raw.toFixed(1) : raw.toFixed(0);
+    }
+
+    return `<div class="stat-row">
+      <span class="stat-label">${s.label}</span>
+      <div class="stat-bar"><div class="stat-fill ${cls}" style="width:${barPct}%"></div></div>
+      <span class="stat-val">${displayVal}</span>
+    </div>`;
+  }).join('');
+
+  const action = c.currentAction || 'Idle';
+  const target = c.currentTarget ? ` \u2192 ${c.currentTarget}` : '';
+  const shift = c.shift || '';
+
+  // Show more priorities in expanded view
+  const maxPrio = expandedCrewId === c.id ? 5 : 3;
+  const prioHtml = (c.priorities || []).slice(0, maxPrio).map(p =>
+    `<div class="priority-item"><span class="priority-cond">${esc(p.condition)}</span> <span class="priority-val">${p.deficit}</span></div>`
+  ).join('');
+
+  return `<div class="crew-name">
+      ${esc(c.name)}
+      ${isManual ? '<span class="crew-manual">MANUAL</span>' : ''}
+      <span class="crew-shift">${esc(shift)}</span>
+    </div>
+    <div class="crew-action">${esc(action)}${esc(target)}</div>
+    <div class="stats-container">${statsHtml}</div>
+    ${prioHtml ? `<div class="priorities">${prioHtml}</div>` : ''}`;
+}
+
+function expandCard(crewId) {
+  const card = document.querySelector(`.crew-card[data-crew-id="${crewId}"]`);
+  if (!card) return;
+
+  const overlay = document.getElementById('cardOverlay');
+  const backdrop = document.getElementById('cardBackdrop');
+  const rect = card.getBoundingClientRect();
+
+  // Find the crew data
+  const crewMember = lastCrewData.find(c => c.id === crewId);
+  if (!crewMember) return;
+
+  // Position overlay exactly at the card (no transition)
+  overlay.style.transition = 'none';
+  overlay.style.top = rect.top + 'px';
+  overlay.style.left = rect.left + 'px';
+  overlay.style.width = rect.width + 'px';
+  overlay.style.height = rect.height + 'px';
+  overlay.style.fontSize = getComputedStyle(card).fontSize;
+  overlay.innerHTML = buildCardHtml(crewMember);
+  overlay.style.display = 'flex';
+
+  backdrop.classList.add('show');
+  expandedCrewId = crewId;
+
+  // Force reflow so the browser registers the starting position
+  overlay.offsetHeight;
+
+  // Animate to center — use expanded font-size for readable detail
+  overlay.style.transition = '';
+  overlay.style.top = '6%';
+  overlay.style.left = '10%';
+  overlay.style.width = '80%';
+  overlay.style.height = '88%';
+  overlay.style.fontSize = '32px';
+}
+
+function collapseCard() {
+  if (!expandedCrewId) return;
+
+  const overlay = document.getElementById('cardOverlay');
+  const backdrop = document.getElementById('cardBackdrop');
+
+  // Find the source card to animate back to
+  const card = document.querySelector(`.crew-card[data-crew-id="${expandedCrewId}"]`);
+  if (card) {
+    const rect = card.getBoundingClientRect();
+    overlay.style.top = rect.top + 'px';
+    overlay.style.left = rect.left + 'px';
+    overlay.style.width = rect.width + 'px';
+    overlay.style.height = rect.height + 'px';
+    overlay.style.fontSize = getComputedStyle(card).fontSize;
+  }
+
+  backdrop.classList.remove('show');
+
+  // Wait for transition to finish then hide
+  setTimeout(() => {
+    overlay.style.display = 'none';
+    expandedCrewId = null;
+  }, 350);
+}
+
+function updateExpandedOverlay() {
+  // If a card is expanded, update its content with latest data
+  if (!expandedCrewId) return;
+  const crewMember = lastCrewData.find(c => c.id === expandedCrewId);
+  if (!crewMember) {
+    collapseCard();
+    return;
+  }
+  const overlay = document.getElementById('cardOverlay');
+  overlay.innerHTML = buildCardHtml(crewMember);
+}
+
+// Click handlers
+document.getElementById('cardBackdrop').addEventListener('click', collapseCard);
+document.getElementById('cardOverlay').addEventListener('click', collapseCard);
+
+function esc(s) {
+  if (!s) return '';
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// === TAB SWITCHING ===
+let activeTab = 'crew';
+let navPollTimer = null;
+
+function switchTab(tab) {
+  activeTab = tab;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.getElementById('viewCrew').classList.toggle('active', tab === 'crew');
+  document.getElementById('viewNav').classList.toggle('active', tab === 'nav');
+
+  if (tab === 'nav') {
+    initNavCanvas();
+    if (!navPollTimer) navPollTimer = setInterval(pollNav, 33);  // 30Hz polling — plugin snapshots every frame
+    pollNav();
+  } else {
+    if (navPollTimer) { clearInterval(navPollTimer); navPollTimer = null; }
+  }
+}
+
+// === NAV MAP ===
+const AU_TO_KM = 149597870.7;
+const AU_TO_M = 149597870700;
+let navCanvas, navCtx;
+let navData = null;
+let navPollTime = 0;      // performance.now() of last successful nav poll
+// Direct game API URL for lower latency nav polling (bypasses Flask proxy).
+// Uses the dashboard's hostname so remote browsers connect to the game PC's
+// plugin directly — requires URL ACL on Windows for non-localhost binding.
+// Falls back to the Flask /api/nav pass-through if direct connection fails.
+const navDirectUrl = `${window.location.protocol}//${window.location.hostname}:8085/api/nav`;
+let camX = 0, camY = 0;  // Camera center (AU)
+let camScale = 5e8;       // Pixels per AU — start at ~150km visible
+let selectedTarget = null;
+// Camera always follows player — offset is the pan displacement from player
+let camOffsetX = 0, camOffsetY = 0;
+
+// Touch state
+let isPanning = false, panStartX = 0, panStartY = 0;
+let offsetStartX = 0, offsetStartY = 0;
+let lastPinchDist = 0;
+let touchStartTime = 0;
+let touchMoved = false;
+
+function initNavCanvas() {
+  navCanvas = document.getElementById('navCanvas');
+  if (navCtx) return;  // Already initialized
+  navCtx = navCanvas.getContext('2d');
+  resizeNavCanvas();
+  window.addEventListener('resize', resizeNavCanvas);
+
+  // Mouse controls
+  navCanvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const factor = e.deltaY > 0 ? 0.8 : 1.25;
+    zoomAt(e.clientX, e.clientY, factor);
+  });
+  navCanvas.addEventListener('mousedown', (e) => {
+    isPanning = true; touchMoved = false; touchStartTime = Date.now();
+    panStartX = e.clientX; panStartY = e.clientY;
+    offsetStartX = camOffsetX; offsetStartY = camOffsetY;
+  });
+  navCanvas.addEventListener('mousemove', (e) => {
+    if (!isPanning) return;
+    const dx = e.clientX - panStartX, dy = e.clientY - panStartY;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) touchMoved = true;
+    camOffsetX = offsetStartX - dx / camScale;
+    camOffsetY = offsetStartY + dy / camScale;
+  });
+  navCanvas.addEventListener('mouseup', (e) => {
+    if (!touchMoved && Date.now() - touchStartTime < 300) handleTap(e.clientX, e.clientY);
+    isPanning = false;
+  });
+
+  // Touch controls
+  navCanvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    if (e.touches.length === 1) {
+      isPanning = true; touchMoved = false; touchStartTime = Date.now();
+      panStartX = e.touches[0].clientX; panStartY = e.touches[0].clientY;
+      offsetStartX = camOffsetX; offsetStartY = camOffsetY;
+    }
+    if (e.touches.length === 2) lastPinchDist = pinchDist(e);
+  });
+  navCanvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    if (e.touches.length === 1 && isPanning) {
+      const dx = e.touches[0].clientX - panStartX, dy = e.touches[0].clientY - panStartY;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) touchMoved = true;
+      camOffsetX = offsetStartX - dx / camScale;
+      camOffsetY = offsetStartY + dy / camScale;
+    }
+    if (e.touches.length === 2) {
+      const d = pinchDist(e);
+      if (lastPinchDist > 0) {
+        const mid = pinchMid(e);
+        zoomAt(mid.x, mid.y, d / lastPinchDist);
+      }
+      lastPinchDist = d;
+    }
+  });
+  navCanvas.addEventListener('touchend', (e) => {
+    if (!touchMoved && Date.now() - touchStartTime < 300 && e.changedTouches.length > 0) {
+      handleTap(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+    }
+    isPanning = false; lastPinchDist = 0;
+  });
+
+  requestAnimationFrame(drawNav);
+}
+
+function resizeNavCanvas() {
+  if (!navCanvas) return;
+  const r = navCanvas.parentElement.getBoundingClientRect();
+  navCanvas.width = r.width * devicePixelRatio;
+  navCanvas.height = r.height * devicePixelRatio;
+  navCanvas.style.width = r.width + 'px';
+  navCanvas.style.height = r.height + 'px';
+}
+
+function pinchDist(e) {
+  const dx = e.touches[1].clientX - e.touches[0].clientX;
+  const dy = e.touches[1].clientY - e.touches[0].clientY;
+  return Math.hypot(dx, dy);
+}
+function pinchMid(e) {
+  return { x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+           y: (e.touches[0].clientY + e.touches[1].clientY) / 2 };
+}
+
+function zoomAt(screenX, screenY, factor) {
+  // Zoom toward the point under the cursor/finger
+  const rect = navCanvas.getBoundingClientRect();
+  const cx = screenX - rect.left, cy = screenY - rect.top;
+
+  // World position under the cursor before zoom
+  const worldX = camX + (cx - rect.width / 2) / camScale;
+  const worldY = camY - (cy - rect.height / 2) / camScale;
+
+  const oldScale = camScale;
+  camScale *= factor;
+  camScale = Math.max(1e4, Math.min(camScale, 1e13));
+
+  // Adjust offset so the world point stays under the cursor
+  const newCamX = worldX - (cx - rect.width / 2) / camScale;
+  const newCamY = worldY + (cy - rect.height / 2) / camScale;
+
+  // Convert absolute camera change to offset change
+  camOffsetX += newCamX - camX;
+  camOffsetY += newCamY - camY;
+}
+
+function centerOnPlayer() {
+  camOffsetX = 0;
+  camOffsetY = 0;
+}
+
+function auToScreen(ax, ay) {
+  const rect = navCanvas.getBoundingClientRect();
+  return {
+    x: ((ax - camX) * camScale + rect.width / 2) * devicePixelRatio,
+    y: (-(ay - camY) * camScale + rect.height / 2) * devicePixelRatio
+  };
+}
+
+function screenToAu(sx, sy) {
+  const rect = navCanvas.getBoundingClientRect();
+  return {
+    x: camX + (sx - rect.width / 2) / camScale,
+    y: camY - (sy - rect.height / 2) / camScale
+  };
+}
+
+let navUseProxy = false;  // Start with direct game API, fall back to Flask proxy
+
+async function pollNav() {
+  try {
+    const url = navUseProxy ? '/api/nav' : navDirectUrl;
+    const r = await fetch(url);
+    const text = await r.text();
+    // Sanitize NaN/Infinity from C# JSON (stations have no RCS → NaN deltaV)
+    const clean = text.replace(/\bNaN\b/g, '0').replace(/\bInfinity\b/g, '0').replace(/\b-Infinity\b/g, '0');
+    const data = JSON.parse(clean);
+    if (data.playerShip) {
+      navData = data;
+      navPollTime = performance.now();
+    }
+  } catch (e) {
+    if (!navUseProxy) navUseProxy = true;  // Direct failed, use Flask proxy
+  }
+}
+
+// === ANALYTICAL ORBIT COMPUTATION ===
+// Computes body positions from Kepler's equation using orbital elements,
+// eliminating the poll-based velocity estimation that caused vibration.
+
+// Track game time rate for interpolation between polls
+let prevOrbitEpoch = 0;
+let prevOrbitWallTime = 0;
+let gameTimeRate = 1.0;  // game seconds per real second (handles time acceleration)
+// Cache of analytically computed body positions (updated each frame)
+let bodyPositions = {};  // keyed by name → {x, y}
+
+function updateGameTimeRate() {
+  if (!navData || !navData.orbitEpoch) return;
+  const now = performance.now() / 1000;
+  if (prevOrbitEpoch > 0) {
+    const dEpoch = navData.orbitEpoch - prevOrbitEpoch;
+    const dWall = now - prevOrbitWallTime;
+    if (dWall > 0.01 && dEpoch > 0) {
+      // Smooth the rate estimate to avoid jitter from poll timing
+      const newRate = dEpoch / dWall;
+      gameTimeRate = gameTimeRate * 0.7 + newRate * 0.3;
+    }
+  }
+  prevOrbitEpoch = navData.orbitEpoch;
+  prevOrbitWallTime = now;
+}
+
+// Solve Kepler's equation: E - ecc*sin(E) = M  (Newton-Raphson, matches game's SolveBigE)
+function solveKepler(M, ecc) {
+  // Normalize M to [0, 2π)
+  M = M % (2 * Math.PI);
+  if (M < 0) M += 2 * Math.PI;
+
+  let E = ecc < 0.8 ? M : Math.PI;  // Initial guess matches game
+  for (let i = 0; i < 10; i++) {
+    const dE = (E - ecc * Math.sin(E) - M) / (1 - ecc * Math.cos(E));
+    E -= dE;
+    if (Math.abs(dE) < 1e-6) break;
+  }
+  return E;
+}
+
+// Compute a single body's LOCAL position (relative to parent) from orbital elements at a given epoch
+function computeLocalPosition(body, epoch) {
+  if (!body.period || body.period <= 0) return { x: body.posX || 0, y: body.posY || 0, local: true };
+
+  const a = body.semiMajor;      // semi-major axis (AU)
+  const b = body.semiMinor;      // semi-minor axis (AU)
+  const ecc = body.ecc || 0;
+  const dir = body.orbitDir || 1;
+  const angleRad = (body.angleDeg || 0) * Math.PI / 180;
+
+  // Mean anomaly: M = 2π * ((epoch + periodShift) % period) / period
+  const phase = ((epoch + (body.periodShift || 0)) % body.period + body.period) % body.period;
+  const M = 2 * Math.PI * phase / body.period;
+
+  // Solve Kepler equation for eccentric anomaly
+  const E = solveKepler(M, ecc);
+
+  // Position in orbital plane (ellipse parametrization, center at ellipse center)
+  let ox = a * Math.cos(E);
+  let oy = b * dir * Math.sin(E);
+
+  // Shift so focus (parent) is at origin: offset = semiMajor - perihelion
+  ox -= (a - (body.perihelion || 0));
+
+  // Rotate by orbit angle (argument of perihelion)
+  const rx = ox * Math.cos(angleRad) - oy * Math.sin(angleRad);
+  const ry = ox * Math.sin(angleRad) + oy * Math.cos(angleRad);
+
+  return { x: rx, y: ry };
+}
+
+// Compute all body positions analytically at a given epoch, respecting parent hierarchy
+function computeAllAnalytical(epoch) {
+  if (!navData || !navData.bodies) return {};
+  const byName = {};
+  for (const b of navData.bodies) byName[b.name] = b;
+
+  const computed = {};
+  function resolve(name) {
+    if (computed[name]) return computed[name];
+    const body = byName[name];
+    if (!body) return { x: 0, y: 0 };
+    const local = computeLocalPosition(body, epoch);
+    if (body.parent && byName[body.parent]) {
+      const parentPos = resolve(body.parent);
+      computed[name] = { x: parentPos.x + local.x, y: parentPos.y + local.y };
+    } else {
+      computed[name] = { x: local.x, y: local.y };
+    }
+    return computed[name];
+  }
+  for (const b of navData.bodies) resolve(b.name);
+  return computed;
+}
+
+// Analytical baseline at poll epoch — captures the small bias vs the game's
+// float-precision internal state. Offset = polled - analytical_at_poll.
+// Final rendered position = analytical_at_predicted + offset (constant bias).
+let anchorAnalytical = {};
+
+function updateAnchorAnalytical() {
+  if (!navData || !navData.orbitEpoch) return;
+  anchorAnalytical = computeAllAnalytical(navData.orbitEpoch);
+}
+
+function computeAllBodyPositions(predictedEpoch) {
+  // Bodies move slowly (<1 pixel per 100ms poll at any usable zoom), so we just
+  // render them at polled positions. Skipping extrapolation avoids vibration
+  // that would otherwise arise from gameTimeRate estimation errors or pauses.
+  if (!navData || !navData.bodies) return;
+  const result = {};
+  for (const b of navData.bodies) {
+    result[b.name] = { x: b.posX || 0, y: b.posY || 0 };
+  }
+  bodyPositions = result;
+}
+
+// Position lookup — everything renders at polled position to keep the
+// scene internally consistent. Extrapolating only some objects (or at an
+// imperfect rate) causes relative drift/snap that reads as vibration.
+function predictPos(obj, key) {
+  if (key && key.startsWith('body_')) {
+    const name = key.substring(5);
+    if (bodyPositions[name]) return bodyPositions[name];
+  }
+  return { x: obj.posX || 0, y: obj.posY || 0 };
+}
+
+function handleTap(screenX, screenY) {
+  if (!navData) return;
+  const rect = navCanvas.getBoundingClientRect();
+  const tapAu = screenToAu(screenX - rect.left, screenY - rect.top);
+  const hitRadius = 20 / camScale;  // 20px hit area in AU
+
+  let best = null, bestDist = hitRadius;
+
+  if (navData.ships) {
+    for (const s of navData.ships) {
+      const pp = predictPos(s, 'ship_' + s.regId);
+      const d = Math.hypot(pp.x - tapAu.x, pp.y - tapAu.y);
+      if (d < bestDist) { bestDist = d; best = { type: 'ship', data: s }; }
+    }
+  }
+  if (navData.playerShip) {
+    const p = navData.playerShip;
+    const pp = predictPos(p, 'player');
+    const d = Math.hypot(pp.x - tapAu.x, pp.y - tapAu.y);
+    if (d < bestDist) { bestDist = d; best = { type: 'player', data: p }; }
+  }
+  if (navData.bodies) {
+    for (const b of navData.bodies) {
+      if (!b.radius || b.radius <= 0) continue;
+      const pp = predictPos(b, 'body_' + b.name);
+      const d = Math.hypot(pp.x - tapAu.x, pp.y - tapAu.y);
+      if (d < bestDist) { bestDist = d; best = { type: 'body', data: b }; }
+    }
+  }
+
+  if (best) selectTarget(best);
+  else deselectTarget();
+}
+
+function selectTarget(target) {
+  selectedTarget = target;
+  const info = document.getElementById('navInfo');
+  const nameEl = document.getElementById('infoName');
+  const bodyEl = document.getElementById('infoBody');
+  info.classList.add('show');
+
+  const d = target.data;
+  const player = navData.playerShip;
+
+  if (target.type === 'ship' || target.type === 'player') {
+    nameEl.textContent = d.name || d.regId;
+    let rangeKm = '--', relVel = '--';
+    if (player && target.type === 'ship') {
+      const pp = predictPos(player, 'player'), tp = predictPos(d, 'ship_' + d.regId);
+      const dx = tp.x - pp.x, dy = tp.y - pp.y;
+      rangeKm = (Math.hypot(dx, dy) * AU_TO_KM).toFixed(1);
+      const rvx = d.velX - player.velX, rvy = d.velY - player.velY;
+      relVel = (Math.hypot(rvx, rvy) * AU_TO_M).toFixed(1);
+    }
+    bodyEl.innerHTML = `
+      <div class="info-row"><span class="info-label">REG</span><span class="info-val">${esc(d.regId || '')}</span></div>
+      ${d.type ? `<div class="info-row"><span class="info-label">TYPE</span><span class="info-val">${esc(d.type)}</span></div>` : ''}
+      <div class="info-row"><span class="info-label">RANGE</span><span class="info-val">${rangeKm} km</span></div>
+      <div class="info-row"><span class="info-label">REL VEL</span><span class="info-val">${relVel} m/s</span></div>
+      <div class="info-row"><span class="info-label">DOCKED</span><span class="info-val">${d.docked ? 'YES' : 'NO'}</span></div>
+    `;
+  } else {
+    nameEl.textContent = d.name;
+    const radiusKm = (d.radius * AU_TO_KM).toFixed(0);
+    let rangeKm = '--';
+    if (player) {
+      const pp = predictPos(player, 'player'), bp = predictPos(d, 'body_' + d.name);
+      const dx = bp.x - pp.x, dy = bp.y - pp.y;
+      rangeKm = (Math.hypot(dx, dy) * AU_TO_KM).toFixed(0);
+    }
+    bodyEl.innerHTML = `
+      <div class="info-row"><span class="info-label">RADIUS</span><span class="info-val">${radiusKm} km</span></div>
+      <div class="info-row"><span class="info-label">RANGE</span><span class="info-val">${rangeKm} km</span></div>
+      <div class="info-row"><span class="info-label">ECC</span><span class="info-val">${d.ecc?.toFixed(4) || '?'}</span></div>
+      <div class="info-row"><span class="info-label">PARENT</span><span class="info-val">${esc(d.parent || 'none')}</span></div>
+    `;
+  }
+}
+
+function deselectTarget() {
+  selectedTarget = null;
+  document.getElementById('navInfo').classList.remove('show');
+}
+
+// === NAV CANVAS RENDERING ===
+function drawNav() {
+  requestAnimationFrame(drawNav);
+  if (!navCtx || !navCanvas || activeTab !== 'nav') return;
+
+  const W = navCanvas.width, H = navCanvas.height;
+  const dpr = devicePixelRatio;
+  const ctx = navCtx;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Camera always follows player + offset (panning adjusts offset, not absolute position)
+  if (navData && navData.playerShip) {
+    const pp = predictPos(navData.playerShip, 'player');
+    camX = pp.x + camOffsetX;
+    camY = pp.y + camOffsetY;
+  }
+
+  // Grid
+  drawGrid(ctx, W, H, dpr);
+
+  if (!navData) {
+    ctx.fillStyle = 'rgba(0,255,65,0.3)';
+    ctx.font = `${14 * dpr}px "Share Tech Mono"`;
+    ctx.textAlign = 'center';
+    ctx.fillText('Waiting for nav data...', W / 2, H / 2);
+    return;
+  }
+
+  // Compute body positions analytically from Kepler's equation each frame
+  if (navData.orbitEpoch) {
+    const wallDt = (performance.now() - navPollTime) / 1000;
+    const predictedEpoch = navData.orbitEpoch + wallDt * gameTimeRate;
+    computeAllBodyPositions(predictedEpoch);
+  }
+
+  // Orbital paths (skip placeholders)
+  if (navData.bodies) {
+    for (const b of navData.bodies) {
+      if (b.parent && b.semiMajor > 0 && b.radius > 0) drawOrbit(ctx, b, dpr);
+    }
+  }
+
+  // Range rings from player
+  if (navData.playerShip) drawRangeRings(ctx, navData.playerShip, W, H, dpr);
+
+  // Bodies (filter out placeholders — orbit markers with no physical radius)
+  if (navData.bodies) {
+    for (const b of navData.bodies) {
+      if (!b.radius || b.radius <= 0) continue;  // Skip ship orbit placeholders
+      drawBody(ctx, b, dpr);
+    }
+  }
+
+  // Ships
+  if (navData.ships) {
+    for (const s of navData.ships) drawShip(ctx, s, false, dpr);
+  }
+
+  // Player ship
+  if (navData.playerShip) drawShip(ctx, navData.playerShip, true, dpr);
+
+  // Selected target highlight
+  if (selectedTarget) drawSelection(ctx, selectedTarget, dpr);
+
+  // Update HUD
+  updateNavHud();
+}
+
+function drawGrid(ctx, W, H, dpr) {
+  // Adaptive grid spacing based on zoom
+  const viewWidthAU = W / dpr / camScale;
+  const gridAU = Math.pow(10, Math.floor(Math.log10(viewWidthAU * 0.3)));
+
+  ctx.strokeStyle = 'rgba(0,255,65,0.06)';
+  ctx.lineWidth = 1;
+
+  const left = camX - W / 2 / dpr / camScale;
+  const right = camX + W / 2 / dpr / camScale;
+  const top = camY + H / 2 / dpr / camScale;
+  const bottom = camY - H / 2 / dpr / camScale;
+
+  const startX = Math.floor(left / gridAU) * gridAU;
+  const startY = Math.floor(bottom / gridAU) * gridAU;
+
+  for (let x = startX; x <= right; x += gridAU) {
+    const s = auToScreen(x, 0);
+    ctx.beginPath(); ctx.moveTo(s.x, 0); ctx.lineTo(s.x, H); ctx.stroke();
+  }
+  for (let y = startY; y <= top; y += gridAU) {
+    const s = auToScreen(0, y);
+    ctx.beginPath(); ctx.moveTo(0, s.y); ctx.lineTo(W, s.y); ctx.stroke();
+  }
+}
+
+function drawOrbit(ctx, body, dpr) {
+  // Find parent position (use analytical if available)
+  const parentData = navData.bodies.find(b => b.name === body.parent);
+  if (!parentData) return;
+  const parentPos = bodyPositions[body.parent] || { x: parentData.posX, y: parentData.posY };
+
+  const a = body.semiMajor;
+  const b = body.semiMinor;
+  if (a <= 0 || b <= 0) return;
+
+  // Check if orbit is visible (rough bounds check)
+  const maxR = a;
+  const ps = auToScreen(parentPos.x, parentPos.y);
+  const radiusPx = maxR * camScale * dpr;
+  if (radiusPx < 2) return;  // Too small to see
+  if (radiusPx > Math.max(navCanvas.width, navCanvas.height) * 20) return;  // Way too big
+
+  const angleRad = (body.angleDeg || 0) * Math.PI / 180;
+  // Ellipse center offset from parent (focus is at parent, center is offset by c = a*e)
+  const c = a * (body.ecc || 0);
+  const cx = parentPos.x + c * Math.cos(angleRad);
+  const cy = parentPos.y + c * Math.sin(angleRad);
+  const cs = auToScreen(cx, cy);
+
+  ctx.strokeStyle = 'rgba(0,255,65,0.1)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.ellipse(cs.x, cs.y, a * camScale * dpr, b * camScale * dpr, -angleRad, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
+function drawBody(ctx, body, dpr) {
+  const predicted = predictPos(body, 'body_' + body.name);
+  const s = auToScreen(predicted.x, predicted.y);
+  // Off-screen check
+  if (s.x < -50 || s.x > navCanvas.width + 50 || s.y < -50 || s.y > navCanvas.height + 50) return;
+
+  const radiusPx = Math.max(3 * dpr, body.radius * camScale * dpr);
+  const cappedRadius = Math.min(radiusPx, 80 * dpr);
+
+  // Color by type
+  let color = '#666';
+  const name = (body.name || '').toLowerCase();
+  if (name === 'sol' || name === 'sun') color = '#ffdd44';
+  else if (name === 'earth' || name === 'terra') color = '#4488cc';
+  else if (name === 'mars') color = '#cc6644';
+  else if (name === 'luna' || name === 'moon') color = '#999';
+  else if (name === 'venus') color = '#ddaa55';
+  else if (name === 'jupiter') color = '#cc9966';
+  else if (name === 'saturn') color = '#ddbb77';
+  else if (!body.parent) color = '#ffdd44';  // Stars
+
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(s.x, s.y, cappedRadius, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Label
+  if (cappedRadius > 2 * dpr || camScale > 1e6) {
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = `${11 * dpr}px "Share Tech Mono"`;
+    ctx.textAlign = 'center';
+    ctx.fillText(body.name || '?', s.x, s.y - cappedRadius - 4 * dpr);
+  }
+}
+
+function drawShip(ctx, ship, isPlayer, dpr) {
+  const predicted = predictPos(ship, isPlayer ? 'player' : 'ship_' + ship.regId);
+  const s = auToScreen(predicted.x, predicted.y);
+  if (s.x < -100 || s.x > navCanvas.width + 100 || s.y < -100 || s.y > navCanvas.height + 100) return;
+
+  const size = isPlayer ? 10 * dpr : 6 * dpr;
+  const heading = -(ship.heading || 0);  // Game fRot: 0=up, CCW positive; negate for screen Y-flip
+
+  ctx.save();
+  ctx.translate(s.x, s.y);
+  ctx.rotate(heading);
+
+  // Triangle
+  ctx.fillStyle = isPlayer ? '#00ccff' : (ship.docked ? '#00aa2a' : '#00ff41');
+  ctx.beginPath();
+  ctx.moveTo(0, -size);
+  ctx.lineTo(-size * 0.6, size * 0.6);
+  ctx.lineTo(size * 0.6, size * 0.6);
+  ctx.closePath();
+  ctx.fill();
+
+  if (isPlayer) {
+    ctx.strokeStyle = '#00ccff';
+    ctx.lineWidth = 1.5 * dpr;
+    ctx.stroke();
+  }
+
+  ctx.restore();
+
+  // Velocity vector
+  const velScale = camScale * 200;  // Exaggerate for visibility
+  const vx = (ship.velX || 0) * velScale * dpr;
+  const vy = -(ship.velY || 0) * velScale * dpr;
+  if (Math.hypot(vx, vy) > 3) {
+    ctx.strokeStyle = isPlayer ? 'rgba(0,204,255,0.4)' : 'rgba(0,255,65,0.2)';
+    ctx.lineWidth = 1 * dpr;
+    ctx.beginPath();
+    ctx.moveTo(s.x, s.y);
+    ctx.lineTo(s.x + vx, s.y + vy);
+    ctx.stroke();
+  }
+
+  // Label
+  const label = ship.name || ship.regId || '?';
+  ctx.fillStyle = isPlayer ? 'rgba(0,204,255,0.7)' : 'rgba(0,255,65,0.5)';
+  ctx.font = `${10 * dpr}px "Share Tech Mono"`;
+  ctx.textAlign = 'center';
+  ctx.fillText(label, s.x, s.y + size + 12 * dpr);
+}
+
+function drawRangeRings(ctx, player, W, H, dpr) {
+  const viewWidthAU = W / dpr / camScale;
+  // Pick ring spacing: powers of 10 in km
+  const viewKm = viewWidthAU * AU_TO_KM;
+  const ringKm = Math.pow(10, Math.floor(Math.log10(viewKm * 0.2)));
+  const ringAU = ringKm / AU_TO_KM;
+
+  ctx.strokeStyle = 'rgba(0,204,255,0.08)';
+  ctx.lineWidth = 1;
+
+  const pp = predictPos(player, 'player');
+  const ps = auToScreen(pp.x, pp.y);
+  for (let i = 1; i <= 6; i++) {
+    const r = ringAU * i * camScale * dpr;
+    if (r < 20 || r > Math.max(W, H) * 2) continue;
+    ctx.beginPath();
+    ctx.arc(ps.x, ps.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Label
+    const labelKm = ringKm * i;
+    let label;
+    if (labelKm >= 1e6) label = (labelKm / 1e6).toFixed(0) + 'M km';
+    else if (labelKm >= 1000) label = (labelKm / 1000).toFixed(0) + 'k km';
+    else label = labelKm.toFixed(0) + ' km';
+
+    ctx.fillStyle = 'rgba(0,204,255,0.2)';
+    ctx.font = `${9 * dpr}px "Share Tech Mono"`;
+    ctx.textAlign = 'left';
+    ctx.fillText(label, ps.x + r + 4, ps.y - 4);
+  }
+}
+
+function drawSelection(ctx, target, dpr) {
+  const d = target.data;
+  const key = target.type === 'body' ? 'body_' + d.name : (target.type === 'player' ? 'player' : 'ship_' + d.regId);
+  const predicted = predictPos(d, key);
+  const s = auToScreen(predicted.x, predicted.y);
+  const r = 16 * dpr;
+
+  ctx.strokeStyle = '#ffaa00';
+  ctx.lineWidth = 2 * dpr;
+  ctx.setLineDash([4 * dpr, 4 * dpr]);
+  ctx.beginPath();
+  ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function updateNavHud() {
+  if (!navData || !navData.playerShip) return;
+  const p = navData.playerShip;
+  const velMs = Math.hypot(p.velX || 0, p.velY || 0) * AU_TO_M;
+  const hdgDeg = ((p.heading || 0) * 180 / Math.PI) % 360;
+
+  document.getElementById('hudShipName').textContent = p.name || p.regId || '---';
+  document.getElementById('hudVel').textContent = velMs < 1000 ? velMs.toFixed(1) + ' m/s' : (velMs / 1000).toFixed(2) + ' km/s';
+  document.getElementById('hudHdg').textContent = hdgDeg.toFixed(1) + '\u00B0';
+  document.getElementById('hudRcs').textContent = (p.rcsFuel || 0).toFixed(1) + ' / ' + (p.rcsMax || 0).toFixed(0) + ' kg';
+  document.getElementById('hudDv').textContent = (p.deltaV || 0).toFixed(0) + ' m/s';
+  document.getElementById('hudPos').textContent = (p.posX || 0).toFixed(6) + ', ' + (p.posY || 0).toFixed(6) + ' AU';
+}
+
+// Start crew polling
+setInterval(poll, POLL_MS);
+poll();
+</script>
+</body>
+</html>

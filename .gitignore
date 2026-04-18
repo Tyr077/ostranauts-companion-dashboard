@@ -1,0 +1,44 @@
+# .NET build outputs
+bin/
+obj/
+build/
+*.dll
+*.pdb
+*.user
+*.suo
+
+# IDE
+.vs/
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+
+# Dashboard runtime data
+dashboard/logs/
+dashboard/*.log
+
+# Thunderstore / release archives
+*.zip
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Local environment / secrets
+.env
+.env.local
+*.local
+
+# Local reference material (not committed)
+decompiled/
+_workspace/
+_scratch/
