@@ -1,10 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net35</TargetFramework>
+    <TargetFramework>netstandard2.1</TargetFramework>
     <AssemblyName>CompanionServer</AssemblyName>
     <RootNamespace>CompanionServer</RootNamespace>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <LangVersion>latest</LangVersion>
 
     <!--
@@ -17,10 +17,18 @@
     <GameDir Condition="'$(GameDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Ostranauts</GameDir>
   </PropertyGroup>
 
-  <!-- BepInEx references -->
+  <!-- BepInEx 6 references (Unity 6 Mono backend) -->
   <ItemGroup>
-    <Reference Include="BepInEx">
-      <HintPath>$(GameDir)\BepInEx\core\BepInEx.dll</HintPath>
+    <Reference Include="BepInEx.Core">
+      <HintPath>$(GameDir)\BepInEx\core\BepInEx.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BepInEx.Unity.Common">
+      <HintPath>$(GameDir)\BepInEx\core\BepInEx.Unity.Common.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BepInEx.Unity.Mono">
+      <HintPath>$(GameDir)\BepInEx\core\BepInEx.Unity.Mono.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="0Harmony">
@@ -29,10 +37,14 @@
     </Reference>
   </ItemGroup>
 
-  <!-- Unity + Game references -->
+  <!-- Unity 6 + Game references -->
   <ItemGroup>
     <Reference Include="UnityEngine">
       <HintPath>$(GameDir)\Ostranauts_Data\Managed\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(GameDir)\Ostranauts_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="Assembly-CSharp">

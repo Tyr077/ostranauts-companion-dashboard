@@ -9,6 +9,7 @@ using System.Threading;
 using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
+using BepInEx.Unity.Mono;
 using HarmonyLib;
 using LitJson;
 using Ostranauts.Condowner;
@@ -16,7 +17,7 @@ using UnityEngine;
 
 namespace CompanionServer
 {
-    [BepInPlugin("com.haiel.companionserver", "Companion Server", "1.0.0")]
+    [BepInPlugin("com.haiel.companionserver", "Companion Server", "1.1.0")]
     public class Plugin : BaseUnityPlugin
     {
         internal static ManualLogSource Log;
@@ -86,7 +87,7 @@ namespace CompanionServer
             }
 
             StartServer();
-            Log.LogInfo("Companion Server v1.0.0 loaded — http://"
+            Log.LogInfo("Companion Server v1.1.0 loaded — http://"
                 + _cfgBindAddress.Value + ":" + _cfgPort.Value + "/api/status");
         }
 
